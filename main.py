@@ -15,7 +15,7 @@ from checks import run_checks
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Review a Terraform file for common AWS security misconfigurations.")
     parser.add_argument("terraform_file", help="Path to a .tf file to review")
-    parser.add_argument("--no-ai", action="store_true", help="Run static checks only; do not call the Anthropic API")
+    parser.add_argument("--no-ai", action="store_true", help="Run static checks only; do not call the AI API")
     return parser.parse_args()
 
 
@@ -51,8 +51,8 @@ def main() -> int:
     if args.no_ai:
         return 0
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        print("\nAI explanation skipped: ANTHROPIC_API_KEY is not set.")
+    if not os.getenv("OPENROUTER_API_KEY"):
+        print("\nAI explanation skipped: OPENROUTER_API_KEY is not set.")
         print("Run with --no-ai for a static-only review, or configure the API key.")
         return 0
 
@@ -67,7 +67,6 @@ def main() -> int:
         return 1
 
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

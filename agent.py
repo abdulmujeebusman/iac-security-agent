@@ -6,7 +6,7 @@ import json
 import os
 
 from strands import Agent
-from strands.models.anthropic import AnthropicModel
+from strands.models.openai import OpenAIModel
 
 SYSTEM_PROMPT = """
 You are an experienced cloud security and DevOps engineer reviewing Terraform.
@@ -26,16 +26,21 @@ report. Start with a short overall assessment, then use one section per finding.
 
 
 def build_agent() -> Agent:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set. Put it in your .env file or environment.")
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. Put it in your .env file or environment."
+        )
 
-    model = AnthropicModel(
-        client_args={"api_key": api_key},
-        model_id=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-        max_tokens=1800,
+    model = OpenAIModel(
+        client_args={
+            "api_key": api_key,
+            "base_url": "https://openrouter.ai/api/v1",
+        },
+        model_id=os.getenv("OPENROUTER_MODEL", "google/gemma-4-31b-it:free"),
         params={"temperature": 0.2},
     )
+
     return Agent(model=model, system_prompt=SYSTEM_PROMPT)
 
 
