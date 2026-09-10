@@ -38,10 +38,19 @@ def build_agent() -> Agent:
             "base_url": "https://openrouter.ai/api/v1",
         },
         model_id=os.getenv("OPENROUTER_MODEL", "google/gemma-4-31b-it:free"),
-        params={"temperature": 0.2},
+        params={
+            "temperature": 0.2,
+            "extra_body": {
+                "models": [
+                    "google/gemma-4-26b-a4b-it:free",
+                    "nvidia/nemotron-3-super-120b-a12b:free",
+                ],
+            },
+        },
     )
 
     return Agent(model=model, system_prompt=SYSTEM_PROMPT)
+
 
 
 def explain_findings(findings: list[dict], terraform_path: str) -> str:
