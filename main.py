@@ -13,9 +13,15 @@ from checks import run_checks
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Review a Terraform file for common AWS security misconfigurations.")
+    parser = argparse.ArgumentParser(
+        description="Review a Terraform file for common AWS security misconfigurations."
+    )
     parser.add_argument("terraform_file", help="Path to a .tf file to review")
-    parser.add_argument("--no-ai", action="store_true", help="Run static checks only; do not call the AI API")
+    parser.add_argument(
+        "--no-ai",
+        action="store_true",
+        help="Run static checks only; do not call the AI API",
+    )
     return parser.parse_args()
 
 
@@ -26,6 +32,7 @@ def main() -> int:
     if path.suffix.lower() != ".tf":
         print("Error: input must be a Terraform .tf file.", file=sys.stderr)
         return 2
+
     if not path.is_file():
         print(f"Error: file not found: {path}", file=sys.stderr)
         return 2
@@ -40,10 +47,25 @@ def main() -> int:
     print(f"File: {path}")
     print(f"Static findings: {len(findings)}")
 
+    severity_counts = {}
+
+    for finding in findings:
+        severity = finding["severity"]
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+    if severity_counts:
+        print("\nSeverity summary:")
+        for severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+            if severity in severity_counts:
+                print(f"  {severity:<10} {severity_counts[severity]}")
+
     if findings:
         print("\nDetected issues:")
         for finding in findings:
-            print(f"  [{finding['severity']}] {finding['rule_id']} - line {finding['line']}: {finding['title']}")
+            print(
+                f"  [{finding['severity']}] {finding['rule_id']} - "
+                f"line {finding['line']}: {finding['title']}"
+            )
             print(f"      {finding['evidence']}")
     else:
         print("\nNo static findings detected.")
@@ -59,14 +81,18 @@ def main() -> int:
     print("\n" + "=" * 72)
     print("AI REVIEW COMMENTS")
     print("=" * 72)
+
     try:
         from agent import explain_findings
+
         print(explain_findings(findings, str(path)))
     except Exception as exc:
-        print(f"AI review failed: {exc}", file=sys.stderr)
-        return 1
+        print(f"AI review unavailable: {exc}", file=sys.stderr)
+        print("Static security findings above remain valid.")
+        return 0
 
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
