@@ -1,86 +1,109 @@
 # IaC Security Review Agent
 
 An AI-assisted Terraform security reviewer built with the **Strands Agents SDK**.
-It combines deterministic static checks with an LLM explanation layer so developers get useful, plain-English pull-request-style feedback instead of a list of rule IDs.
 
-> **Hackathon track:** Professional Agents  
-> **Primary audience:** DevOps, platform and cloud engineers reviewing AWS infrastructure as code.
+The agent combines deterministic security checks with an AI explanation layer. It detects common Terraform security misconfigurations, then turns the structured findings into concise, pull-request-style feedback with practical remediation guidance.
+
+> **Hackathon:** AWS Agents for Humans 2026
+> **Track:** Professional Agents
+> **Audience:** DevOps, cloud, platform and security engineers
 
 ## What it does
 
-Give the agent a Terraform `.tf` file. It:
+Give the agent a Terraform `.tf` file and it:
 
-1. Scans the file with simple, deterministic Python checks.
-2. Converts matches into structured findings containing a rule ID, severity, line number, title and evidence.
-3. Sends those findings to a **Strands Agents** agent using Claude through Anthropic's API.
-4. Turns each finding into a concise security explanation and suggested Terraform-oriented fix.
+1. Scans the configuration using deterministic Python security checks.
+2. Produces structured findings with a rule ID, severity, line number, title and evidence.
+3. Passes those findings to a **Strands Agent**.
+4. Uses an LLM through **OpenRouter** to explain the detected issues.
+5. Produces concise, developer-friendly security review comments and remediation guidance.
 
-The LLM is deliberately **not** responsible for detecting the initial problems. That keeps the security checks predictable and makes the project easy to explain and extend.
+The AI is **not responsible for detecting vulnerabilities**. The static scanner determines what was found, while the agent explains those findings.
+
+This separation keeps detection predictable, makes the system easier to test, and reduces the risk of the LLM inventing vulnerabilities that were never detected.
 
 ## Architecture
 
 ```text
-             Terraform .tf file
-                     |
-                     v
-        +--------------------------+
-        |  Static security checks  |
-        |   Python + regex/text    |
-        +------------+-------------+
-                     |
-                     v
-             Structured findings
-                     |
-                     v
-        +--------------------------+
-        |      Strands Agent       |
-        |   security-review prompt |
-        +------------+-------------+
-                     |
-                     v
-             Claude via Anthropic
-                     |
-                     v
-          Plain-English review
-          + suggested remediation
+                 Terraform .tf file
+                         |
+                         v
+              +----------------------+
+              |  Static Security     |
+              |  Checks              |
+              |  Python + regex/text |
+              +----------+-----------+
+                         |
+                         v
+               Structured findings
+                         |
+                         v
+              +----------------------+
+              |    Strands Agent     |
+              |  Explanation Layer    |
+              +----------+-----------+
+                         |
+                         v
+                LLM via OpenRouter
+                         |
+                         v
+             Plain-English review
+             + remediation guidance
 ```
 
-Strands Agents is used as the agent framework, while the Anthropic provider lets this project call Claude directly without using Amazon Bedrock.
+### Design principle
 
-## Checks included
+**Detection and explanation are separate.**
 
-| Rule | What it looks for | Severity |
-|---|---|---|
-| `S3_PUBLIC_ACL` | Public S3 ACLs such as `public-read` | High |
-| `S3_PUBLIC_ACCESS_BLOCK_DISABLED` | Disabled S3 public-access protection | High |
-| `OPEN_INGRESS` | `0.0.0.0/0` network ingress | High |
-| `IAM_WILDCARD` | Wildcard IAM actions/resources | High |
-| `UNENCRYPTED_STORAGE` | Explicitly disabled EBS/RDS encryption | High |
-| `HARDCODED_SECRET` | Credential-like hardcoded values | Critical |
-| `S3_LOGGING_MISSING` | S3 bucket without a logging block | Medium |
+The deterministic scanner decides what security issues exist in the supplied findings. The Strands agent does not perform another security scan. It explains only the findings it receives.
 
-These are intentionally lightweight checks for a hackathon demo. They are **not** a complete Terraform parser or a replacement for production security scanners.
+## Security checks
+
+| Rule                              | What it detects                                     | Severity |
+| --------------------------------- | --------------------------------------------------- | -------- |
+| `S3_PUBLIC_ACL`                   | Public S3 ACLs such as `public-read`                | High     |
+| `S3_PUBLIC_ACCESS_BLOCK_DISABLED` | Disabled S3 public-access protection                | High     |
+| `OPEN_INGRESS`                    | IPv4 ingress open to `0.0.0.0/0`                    | High     |
+| `IAM_WILDCARD`                    | Wildcard IAM actions or resources                   | High     |
+| `UNENCRYPTED_STORAGE`             | Explicitly disabled EBS/RDS encryption              | High     |
+| `HARDCODED_SECRET`                | Sensitive Terraform variables with literal defaults | Critical |
+| `S3_LOGGING_MISSING`              | S3 buckets without access logging                   | Medium   |
+
+The checks are intentionally lightweight and focused on demonstrating the agent architecture. This project is **not a complete Terraform parser or a replacement for production IaC security tooling**.
 
 ## Project structure
 
 ```text
 iac-security-agent/
-├── .env                  # local API key; never commit this
 ├── .gitignore
-├── requirements.txt
 ├── README.md
-├── main.py               # CLI entry point
-├── checks.py             # deterministic security rules
-├── agent.py              # Strands + Anthropic agent
+├── requirements.txt
+├── main.py                  # CLI entry point
+├── checks.py                # deterministic security rules
+├── agent.py                 # Strands agent + LLM integration
+├── test_checks.py            # automated tests
 └── samples/
-    └── bad_example.tf    # intentionally insecure demo input
+    ├── bad_example.tf        # intentionally insecure example
+    └── good_example.tf       # secure example
 ```
+
+## Requirements
+
+* Python 3.10+
+* An OpenRouter API key for AI-powered reviews
+
+The static scanner can be used without an API key.
 
 ## Setup
 
-### 1. Create a virtual environment
+### 1. Clone the repository
 
-Python 3.10+ is required.
+```bash
+git clone https://github.com/abdulmujeebusman/iac-security-agent.git
+cd iac-security-agent
+```
+
+### 2. Create a virtual environment
 
 ```bash
 python -m venv .venv
@@ -92,97 +115,127 @@ Windows PowerShell:
 .venv\Scripts\Activate.ps1
 ```
 
-### 2. Install dependencies
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure Anthropic
+### 4. Configure OpenRouter
 
-Create `.env` in the project root:
-
-```env
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-```
-
-You can optionally choose another supported Claude model:
+Create a `.env` file in the project root:
 
 ```env
-ANTHROPIC_MODEL=claude-sonnet-4-6
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_MODEL=google/gemma-4-31b-it:free
 ```
 
-**Never commit `.env` or expose your API key in the public repository.**
+The model can be changed to another compatible OpenRouter model.
 
-## Run the demo
+**Never commit `.env` or expose your API key.**
 
-From the project root:
+## Run the reviewer
+
+### AI-powered review
 
 ```bash
 python main.py samples/bad_example.tf
 ```
 
-To demonstrate only the deterministic scanner without making an API call:
+The static findings are generated first, then passed to the Strands Agent for explanation.
+
+### Static-only review
 
 ```bash
 python main.py samples/bad_example.tf --no-ai
 ```
 
-## Example output
+This runs the deterministic checks without making an API request.
 
-The exact Claude wording will vary, but a run will look conceptually like this:
+### Review a clean configuration
 
-```text
-========================================================================
-IaC SECURITY REVIEW
-========================================================================
-File: samples/bad_example.tf
-Static findings: 8
-
-Detected issues:
-  [HIGH] S3_PUBLIC_ACL - line 6: S3 bucket may be publicly accessible
-  [HIGH] S3_PUBLIC_ACCESS_BLOCK_DISABLED - line 11: S3 public-access protection is disabled
-  [HIGH] OPEN_INGRESS - line 22: Network ingress is open to the entire IPv4 internet
-  [HIGH] IAM_WILDCARD - line 34: IAM policy grants a wildcard action or resource
-  [HIGH] IAM_WILDCARD - line 35: IAM policy grants a wildcard action or resource
-  [HIGH] UNENCRYPTED_STORAGE - line 42: Storage encryption is explicitly disabled
-  [CRITICAL] HARDCODED_SECRET - line 46: A credential-like value appears hardcoded in Terraform
-  [MEDIUM] S3_LOGGING_MISSING - line 49: S3 bucket has no access-logging configuration
-
-========================================================================
-AI REVIEW COMMENTS
-========================================================================
-Overall assessment: The file contains several high-impact security issues...
-
-## S3 public access
-This bucket can be read publicly...
-Suggested fix: remove the public ACL and enable S3 Block Public Access...
+```bash
+python main.py samples/good_example.tf --no-ai
 ```
 
-## Why use an agent here?
+The included secure example should produce:
 
-A traditional scanner is good at finding known patterns, but its output can be difficult for less experienced engineers to interpret. The agent adds a human-friendly explanation layer:
+```text
+Static findings: 0
 
-- **Static checks decide what was detected.**
-- **The Strands agent explains what the finding means.**
-- **Claude suggests a practical remediation path.**
-- **The final output reads like a senior engineer's review comment.**
+No static findings detected.
+```
 
-This separation also makes the system easier to reason about during a live demo: the audience can see exactly where deterministic security logic ends and AI reasoning begins.
+### Example insecure configuration
+
+The included vulnerable example currently produces findings across several categories, including:
+
+```text
+[MEDIUM] S3_LOGGING_MISSING
+[HIGH] S3_PUBLIC_ACL
+[HIGH] S3_PUBLIC_ACCESS_BLOCK_DISABLED
+[HIGH] OPEN_INGRESS
+[HIGH] IAM_WILDCARD
+[HIGH] UNENCRYPTED_STORAGE
+[CRITICAL] HARDCODED_SECRET
+```
+
+Multiple findings can be generated for a single configuration when different insecure settings are detected.
+
+## Testing
+
+Run the automated test suite:
+
+```bash
+python -m pytest -q
+```
+
+The current test suite covers the security rules, finding structure, resource context, severity levels, ordering, CLI behavior and separate S3 logging resources.
+
+## Why use an agent?
+
+A traditional scanner can identify a misconfiguration, but the raw result may not tell a developer what the finding means or what should be changed.
+
+This project adds an explanation layer:
+
+* **Static checks detect the configured condition.**
+* **Structured findings provide the evidence and context.**
+* **The Strands Agent explains the finding.**
+* **The LLM provides concise remediation guidance.**
+* **The final output resembles a useful pull-request security review.**
+
+The agent is deliberately grounded in the scanner's findings rather than being asked to independently scan the entire Terraform file. This makes the boundary between deterministic security logic and AI reasoning clear during development and demonstration.
 
 ## Limitations
 
-This is a hackathon-sized reviewer, not a production IaC security platform. Regex/text checks can produce false positives or miss Terraform constructs that a full HCL parser would understand. It also does not validate the resulting AWS infrastructure or replace tools such as policy scanners and IaC linters.
+This is a hackathon-sized security reviewer, not a production IaC security platform.
 
-The goal is to demonstrate a simple, understandable agent architecture that can turn structured security findings into useful engineering feedback.
+The current checks use lightweight text and regular-expression matching, so they may produce false positives or miss Terraform constructs that a full HCL parser would understand.
 
-## Hackathon submission description
+The project also does not:
 
-**What:** An AI-assisted Infrastructure-as-Code Security Review Agent for Terraform. It detects common AWS security misconfigurations using deterministic static checks, then uses a Strands Agents SDK agent and Claude to explain each finding in plain English and suggest a practical fix.
+* Validate deployed AWS infrastructure
+* Perform a complete Terraform semantic analysis
+* Replace dedicated IaC security scanners
+* Guarantee that a Terraform configuration is secure
 
-**Who:** DevOps, platform, cloud and security engineers who review Terraform before infrastructure changes reach AWS.
+The goal is to demonstrate a practical agent architecture that combines **deterministic security detection with useful AI-assisted developer feedback**.
 
-**How:** Terraform is first scanned by lightweight Python checks for issues such as public S3 access, open network ingress, wildcard IAM permissions, unencrypted storage, hardcoded credentials and missing S3 logging. The structured findings are then passed to a Strands agent, which acts like a senior engineer writing concise pull-request review comments. The project uses the Anthropic provider directly rather than Amazon Bedrock.
+## Hackathon submission
+
+### What
+
+An AI-assisted Infrastructure-as-Code Security Review Agent for Terraform. It detects common AWS infrastructure security misconfigurations using deterministic static checks, then uses a Strands Agents SDK agent to turn those findings into concise, human-readable security review comments.
+
+### Who
+
+DevOps, cloud, platform and security engineers who review Terraform configurations before infrastructure changes are deployed.
+
+### How
+
+A Terraform file is first analyzed by lightweight Python checks for issues such as public S3 access, open network ingress, wildcard IAM permissions, unencrypted storage, hardcoded sensitive values and missing S3 logging.
+
+The resulting findings are passed to a Strands Agent through an LLM endpoint. The agent is restricted to explaining the supplied findings rather than performing a second vulnerability scan. It produces developer-friendly explanations and practical remediation guidance.
 
 ## License
 
