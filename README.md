@@ -59,17 +59,30 @@ The deterministic scanner decides what security issues exist in the supplied fin
 
 ## Security checks
 
-| Rule                              | What it detects                                     | Severity |
-| --------------------------------- | --------------------------------------------------- | -------- |
-| `S3_PUBLIC_ACL`                   | Public S3 ACLs such as `public-read`                | High     |
-| `S3_PUBLIC_ACCESS_BLOCK_DISABLED` | Disabled S3 public-access protection                | High     |
-| `OPEN_INGRESS`                    | IPv4 ingress open to `0.0.0.0/0`                    | High     |
-| `IAM_WILDCARD`                    | Wildcard IAM actions or resources                   | High     |
-| `UNENCRYPTED_STORAGE`             | Explicitly disabled EBS/RDS encryption              | High     |
-| `HARDCODED_SECRET`                | Sensitive Terraform variables with literal defaults | Critical |
-| `S3_LOGGING_MISSING`              | S3 buckets without access logging                   | Medium   |
+| Rule                              | What it detects                                                                                         | Severity |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- | -------- |
+| `S3_PUBLIC_ACL`                   | Public S3 ACLs (`public-read`, `authenticated-read`, AllUsers grants)                                    | High     |
+| `S3_PUBLIC_ACCESS_BLOCK_DISABLED` | Disabled S3 public-access protection                                                                    | High     |
+| `OPEN_INGRESS`                    | Ingress open to `0.0.0.0/0` or `::/0` (inline, dynamic, `aws_security_group_rule`, `aws_vpc_security_group_ingress_rule`, NACLs). Egress and routes are ignored | High     |
+| `IAM_WILDCARD`                    | `"*"` actions/resources, including inside lists and `aws_iam_policy_document`                           | High     |
+| `UNENCRYPTED_STORAGE`             | Explicitly disabled EBS/RDS encryption                                                                  | High     |
+| `HARDCODED_SECRET`                | AWS access keys, private keys, literal passwords/tokens/keys, sensitive variables with literal defaults | Critical |
+| `S3_LOGGING_MISSING`              | S3 buckets without access logging                                                                       | Medium   |
 
 The checks are intentionally lightweight and focused on demonstrating the agent architecture. This project is **not a complete Terraform parser or a replacement for production IaC security tooling**.
+
+## Security hardening
+
+The reviewer itself handles untrusted input (the Terraform file) and talks to a third-party LLM, so it protects both:
+
+* **Secrets are never echoed.** `HARDCODED_SECRET` evidence is redacted (`password = "<redacted>"`) before it is printed or sent to the model, so the scanner doesn't leak the credential it found into CI logs or to OpenRouter.
+* **Comments are ignored** by the misconfiguration rules, so commented-out code isn't reported and comment text never reaches the model. Secret detection still scans comments, because a key in a comment is still a leaked key.
+* **Prompt-injection resistance.** Only structured findings are sent, never the whole file. Each field is length-capped, stripped of control characters, and wrapped in a `<findings>` data block that the system prompt marks as untrusted. Only the file's base name is sent, not your local path.
+* **Safe terminal output.** ANSI/control sequences are stripped from model output and error messages. Streaming is disabled, so nothing unsanitized reaches the terminal. The API key is redacted from error text.
+* **Bounded requests.** 60 s timeout, 2 retries, `max_tokens` cap, at most 50 findings per request, and no agent tools registered.
+* **Input validation.** Only `.tf` files up to 2 MiB of valid UTF-8 are accepted.
+
+> Free OpenRouter models may log prompts. Use `--no-ai` for sensitive code, or set `OPENROUTER_MODEL` to a provider whose data policy you accept. Set `OPENROUTER_FALLBACK_MODELS=` (empty) to stop automatic routing to other models.
 
 ## Project structure
 
@@ -123,7 +136,7 @@ pip install -r requirements.txt
 
 ### 4. Configure OpenRouter
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` in the project root and fill in your key:
 
 ```env
 OPENROUTER_API_KEY=your_openrouter_api_key_here
@@ -151,6 +164,14 @@ python main.py samples/bad_example.tf --no-ai
 ```
 
 This runs the deterministic checks without making an API request.
+
+### Use as a CI gate
+
+```bash
+python main.py infra/main.tf --no-ai --fail-on high
+```
+
+The command exits with status `1` when any finding is at or above the chosen severity (`critical`, `high`, `medium`, `low`). The default is `none`, which always exits `0`. Status `2` means invalid input.
 
 ### Review a clean configuration
 
